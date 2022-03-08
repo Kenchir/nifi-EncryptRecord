@@ -1,29 +1,40 @@
-/*
- * Licensed to the Apache Software Foundation (ASF) under one or more
- * contributor license agreements.  See the NOTICE file distributed with
- * this work for additional information regarding copyright ownership.
- * The ASF licenses this file to You under the Apache License, Version 2.0
- * (the "License"); you may not use this file except in compliance with
- * the License.  You may obtain a copy of the License at
- *
- *     http://www.apache.org/licenses/LICENSE-2.0
- *
- * Unless required by applicable law or agreed to in writing, software
- * distributed under the License is distributed on an "AS IS" BASIS,
- * WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
- * See the License for the specific language governing permissions and
- * limitations under the License.
- */
 package com.safaricom.et.processors.EncryptionService;
 
-import com.safaricom.et.processors.EncryptionService.Utils.AbstractEncryptRecordProcessor;
+
 import com.safaricom.et.processors.EncryptionService.Utils.Encryption;
+import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
-import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.logging.ComponentLog;
+import org.apache.nifi.logging.LogMessage;
+import org.apache.nifi.processor.*;
+
+import java.io.IOException;
+import java.io.InputStream;
+import java.io.OutputStream;
+import java.util.*;
+import java.util.concurrent.atomic.AtomicInteger;
+import java.util.logging.Logger;
+import java.util.stream.Collectors;
+import java.util.stream.Stream;
+
+import org.apache.nifi.components.PropertyDescriptor;
 import org.apache.nifi.expression.ExpressionLanguageScope;
 import org.apache.nifi.flowfile.FlowFile;
+import org.apache.nifi.flowfile.attributes.CoreAttributes;
+import org.apache.nifi.processor.AbstractProcessor;
+import org.apache.nifi.processor.exception.ProcessException;
+import org.apache.nifi.processor.io.StreamCallback;
+import org.apache.nifi.processor.util.StandardValidators;
+import org.apache.nifi.record.path.FieldValue;
+import org.apache.nifi.record.path.RecordPath;
+import org.apache.nifi.record.path.RecordPathResult;
+import org.apache.nifi.record.path.util.RecordPathCache;
+import org.apache.nifi.record.path.validation.RecordPathPropertyNameValidator;
+import org.apache.nifi.schema.access.SchemaNotFoundException;
+import org.apache.nifi.serialization.*;
+import org.apache.nifi.serialization.record.*;
 import org.apache.nifi.annotation.behavior.ReadsAttribute;
 import org.apache.nifi.annotation.behavior.ReadsAttributes;
 import org.apache.nifi.annotation.behavior.WritesAttribute;
@@ -31,47 +42,63 @@ import org.apache.nifi.annotation.behavior.WritesAttributes;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.SeeAlso;
-import org.apache.nifi.annotation.documentation.Tags;
-import org.apache.nifi.processor.ProcessContext;
-import org.apache.nifi.processor.Relationship;
-import org.apache.nifi.processor.util.StandardValidators;
-import org.apache.nifi.record.path.FieldValue;
-import org.apache.nifi.record.path.RecordPath;
-import org.apache.nifi.record.path.RecordPathResult;
-import org.apache.nifi.record.path.util.RecordPathCache;
-import org.apache.nifi.record.path.validation.RecordPathPropertyNameValidator;
-import org.apache.nifi.serialization.SimpleRecordSchema;
-import org.apache.nifi.serialization.record.MapRecord;
-import org.apache.nifi.serialization.record.Record;
-import org.apache.nifi.serialization.record.RecordField;
-import org.apache.nifi.serialization.record.RecordSchema;
-import sun.security.util.math.intpoly.IntegerPolynomial448;
-
-import java.util.*;
-import java.util.logging.Logger;
-import java.util.stream.Collectors;
-import java.util.stream.Stream;
 
 import static java.lang.Integer.parseInt;
+
 
 @Tags({"example"})
 @CapabilityDescription("Provide a description")
 @SeeAlso({})
-@ReadsAttributes({@ReadsAttribute(attribute="", description="")})
-@WritesAttributes({@WritesAttribute(attribute="", description="")})
-public class EncryptRecordProcessor extends AbstractEncryptRecordProcessor {
+@ReadsAttributes({@ReadsAttribute(attribute = "", description = "")})
+@WritesAttributes({@WritesAttribute(attribute = "", description = "")})
 
+public class EncryptRecordProcessor extends AbstractProcessor {
     Logger logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
-    private static final String FIELD_NAME = "field.name";
-    private static final String FIELD_VALUE = "field.value";
-    private static final String FIELD_TYPE = "field.type";
-
-    private static final String RECORD_INDEX = "record.index";
-
+    public  static  final Encryption encryption = new Encryption();
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
+    public static final   PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
+            .name("record-reader")
+            .displayName("Record Reader")
+            .description("Specifies the Controller Service to use for reading incoming data")
+            .identifiesControllerService(RecordReaderFactory.class)
+            .required(true)
+            .build();
 
-    private static Encryption encryption = new Encryption();
+    public  static final   PropertyDescriptor RECORD_WRITER = new PropertyDescriptor.Builder()
+            .name("record-writer")
+            .displayName("Record Writer")
+            .description("Specifies the Controller Service to use for writing out the records")
+            .identifiesControllerService(RecordSetWriterFactory.class)
+            .required(true)
+            .build();
+
+    public static final  Relationship REL_SUCCESS = new Relationship.Builder()
+            .name("success")
+            .description("FlowFiles that are successfully transformed will be routed to this relationship")
+            .build();
+
+    public static final Relationship REL_FAILURE = new Relationship.Builder()
+            .name("failure")
+            .description("If a FlowFile cannot be transformed from the configured input format to the configured output format, "
+                    + "the unchanged FlowFile will be routed to this relationship")
+            .build();
+    public static final Relationship REL_ORIGINAL = new Relationship.Builder()
+            .name("original")
+            .description(" Unchanged FlowFile will be routed to this relationship after success transformation.")
+            .build();
+
+    public  static final PropertyDescriptor INCLUDE_ZERO_RECORD_FLOWFILES = new PropertyDescriptor.Builder()
+            .name("include-zero-record-flowfiles")
+            .displayName("Include Zero Record FlowFiles")
+            .description("When converting an incoming FlowFile, if the conversion results in no data, "
+                    + "this property specifies whether or not a FlowFile will be sent to the corresponding relationship")
+            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .allowableValues("true", "false")
+            .defaultValue("true")
+            .required(true)
+            .build();
+
     static final AllowableValue LITERAL_VALUES = new AllowableValue("literal-value", "Literal Value",
             "The value entered for a Property (after Expression Language has been evaluated) is the desired value to update the Record Fields with. Expression Language "
                     + "may reference variables 'field.name', 'field.type', and 'field.value' to access information about the field and the value of the field being evaluated.");
@@ -131,33 +158,37 @@ public class EncryptRecordProcessor extends AbstractEncryptRecordProcessor {
             .dependsOn(KEY_SIZE, "true")
             .build();
 
-
-//    @Override
-//    protected void init(final ProcessorInitializationContext context) {
-//        descriptors = new ArrayList<>();
-//        descriptors.add(MY_PROPERTY);
-//        descriptors = Collections.unmodifiableList(descriptors);
-//
-//        relationships = new HashSet<>();
-//        relationships.add(this.getRelationships());
-//        relationships = Collections.unmodifiableSet(relationships);
-//    }
+    private List<PropertyDescriptor> descriptors;
+    private Set<Relationship> relationships;
+    private ComponentLog logger1;
 
     @Override
+    protected void init(final ProcessorInitializationContext context) {
+        final List<PropertyDescriptor> descriptors = new ArrayList<>();
+        descriptors.add(RECORD_WRITER);
+        descriptors.add(RECORD_READER);
+        descriptors.add(REPLACEMENT_VALUE_STRATEGY);
+        descriptors.add(ENCRYPTION_ALGORITHM_TYPE);
+        descriptors.add(KEY_SIZE);
+        descriptors.add(SECRET_KEY);
+
+        this.descriptors = Collections.unmodifiableList(descriptors);
+
+        final Set<Relationship> relationships = new HashSet<Relationship>();
+        relationships.add(REL_SUCCESS);
+        relationships.add(REL_FAILURE);
+        relationships.add(REL_ORIGINAL);
+        this.relationships = Collections.unmodifiableSet(relationships);
+    }
+    @Override
     public Set<Relationship> getRelationships() {
-        return super.getRelationships();
+        return this.relationships;
     }
 
     @Override
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
-        final List<PropertyDescriptor> properties = new ArrayList<>(super.getSupportedPropertyDescriptors());
-        properties.add(REPLACEMENT_VALUE_STRATEGY);
-        properties.add(ENCRYPTION_ALGORITHM_TYPE);
-        properties.add(KEY_SIZE);
-        properties.add(SECRET_KEY);
-        return properties;
+        return this.descriptors;
     }
-
     @Override
     protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
         return new PropertyDescriptor.Builder()
@@ -175,8 +206,6 @@ public class EncryptRecordProcessor extends AbstractEncryptRecordProcessor {
 
         if (containsDynamic) {
             String key =validationContext.getProperty(SECRET_KEY).getValue();
-            logger.info("Key: " +key);
-            logger.info("Key size; "+ validationContext.getProperty(KEY_SIZE).getValue());
             if(key != null){
                 final  boolean isKeyValid=encryption.KEY_VALIDATOR(validationContext.getProperty(SECRET_KEY).getValue()
                         ,parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
@@ -199,6 +228,7 @@ public class EncryptRecordProcessor extends AbstractEncryptRecordProcessor {
                 .build());
     }
 
+
     @OnScheduled
     public void createRecordPaths(final ProcessContext context) {
         recordPathCache = new RecordPathCache(context.getProperties().size() * 2);
@@ -212,41 +242,142 @@ public class EncryptRecordProcessor extends AbstractEncryptRecordProcessor {
         }
         this.recordPaths = recordPaths;
     }
-    private Record processAbsolutePath(final RecordPath replacementRecordPath, final Stream<FieldValue> destinationFields, final Record record) {
-        final RecordPathResult replacementResult = replacementRecordPath.evaluate(record);
-        final List<FieldValue> selectedFields = replacementResult.getSelectedFields().collect(Collectors.toList());
-        final List<FieldValue> destinationFieldValues = destinationFields.collect(Collectors.toList());
 
-        return updateRecord(destinationFieldValues, selectedFields, record);
-    }
     @Override
-    protected Record process(Record record, final FlowFile flowFile, final ProcessContext context, final long count) {
-//        final boolean evaluateValueAsRecordPath = context.getProperty(REPLACEMENT_VALUE_STRATEGY).getValue().equals(RECORD_PATH_VALUES.getValue());
+    public void onTrigger(final ProcessContext context, final ProcessSession session) throws ProcessException {
+        FlowFile flowFile = session.get();
+        if (flowFile == null) {
+            return;
+        }
+
+        final RecordReaderFactory readerFactory = context.getProperty(RECORD_READER).asControllerService(RecordReaderFactory.class);
+        final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
+        final boolean includeZeroRecordFlowFiles = context.getProperty(INCLUDE_ZERO_RECORD_FLOWFILES).isSet()? context.getProperty(INCLUDE_ZERO_RECORD_FLOWFILES).asBoolean():true;
+        final String secretKey = context.getProperty(SECRET_KEY).getValue();
+        final String aes_algorithm = context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
+
+        final Map<String, String> attributes = new HashMap<>();
+        final AtomicInteger recordCount = new AtomicInteger();
+
+        final FlowFile original = flowFile;
+        final Map<String, String> originalAttributes = flowFile.getAttributes();
+        try {
+            flowFile = session.write(flowFile, new StreamCallback() {
+                @Override
+                public void process(final InputStream in, final OutputStream out) throws IOException {
+
+                    try (final RecordReader reader = readerFactory.createRecordReader(originalAttributes, in, original.getSize(), getLogger())) {
+
+                        // Get the first record and process it before we create the Record Writer. We do this so that if the Processor
+                        // updates the Record's schema, we can provide an updated schema to the Record Writer. If there are no records,
+                        // then we can simply create the Writer with the Reader's schema and begin & end the Record Set.
+                        Record firstRecord = reader.nextRecord();
+                        getLogger().info(firstRecord.getValue("msisdn").toString());
+                        if (firstRecord == null) {
+                            final RecordSchema writeSchema = writerFactory.getSchema(originalAttributes, reader.getSchema());
+                            try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out, originalAttributes)) {
+                                writer.beginRecordSet();
+
+                                final WriteResult writeResult = writer.finishRecordSet();
+                                attributes.put("record.count", String.valueOf(writeResult.getRecordCount()));
+                                attributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
+                                attributes.putAll(writeResult.getAttributes());
+                                attributes.put("algorithm",aes_algorithm);
+                                recordCount.set(writeResult.getRecordCount());
+                            }
+
+                            return;
+                        }
+
+                        firstRecord = encryptRecord(firstRecord, original, context, 1L);
+
+                        final RecordSchema writeSchema = writerFactory.getSchema(originalAttributes, firstRecord.getSchema());
+                        try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out, originalAttributes)) {
+                            writer.beginRecordSet();
+                            writer.write(firstRecord);
+
+                            Record record;
+                            long count = 1L;
+                            while ((record = reader.nextRecord()) != null) {
+//                                final Record processed = AbstractEncryptRecordProcessor.this.process(record, original, context, ++count);
+//                                writer.write(processed);
+                            }
+
+                            final WriteResult writeResult = writer.finishRecordSet();
+                            attributes.put("record.count", String.valueOf(writeResult.getRecordCount()));
+                            attributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
+                            attributes.putAll(writeResult.getAttributes());
+                            recordCount.set(writeResult.getRecordCount());
+                        }
+                    } catch (final SchemaNotFoundException e) {
+                        throw new ProcessException(e.getLocalizedMessage(), e);
+                    } catch (final MalformedRecordException e) {
+                        throw new ProcessException("Could not parse incoming data", e);
+                    }
+                }
+            });
+        } catch (final Exception e) {
+            getLogger().error("Failed to process {}; will route to failure", new Object[] {flowFile, e});
+            // Since we are wrapping the exceptions above there should always be a cause
+            // but it's possible it might not have a message. This handles that by logging
+            // the name of the class thrown.
+            Throwable c = e.getCause();
+            if (c != null) {
+                session.putAttribute(flowFile, "record.error.message", (c.getLocalizedMessage() != null) ? c.getLocalizedMessage() : c.getClass().getCanonicalName() + " Thrown");
+            } else {
+                session.putAttribute(flowFile, "record.error.message", e.getClass().getCanonicalName() + " Thrown");
+            }
+            session.transfer(flowFile, REL_FAILURE);
+            return;
+        }
+
+        flowFile = session.putAllAttributes(flowFile, attributes);
+        if(!includeZeroRecordFlowFiles && recordCount.get() == 0){
+            session.remove(flowFile);
+        } else {
+            session.transfer(flowFile, REL_SUCCESS);
+        }
+
+        final int count = recordCount.get();
+        session.adjustCounter("Records Processed", count, false);
+        getLogger().info("Successfully converted {} records for {}", new Object[] {count, flowFile});
+    }
+
+    protected  Record encryptRecord(Record record, FlowFile flowFile, ProcessContext context, long count){
 
         for (final String recordPathText : recordPaths) {
+//            getLogger().info("recordPathText: "+recordPathText);
             final RecordPath recordPath = recordPathCache.getCompiled(recordPathText);
             final RecordPathResult result = recordPath.evaluate(record);
+
             final String replacementValue = context.getProperty(recordPathText).evaluateAttributeExpressions(flowFile).getValue();
+//            getLogger().info("replacementValue : "+replacementValue);
             final RecordPath replacementRecordPath = recordPathCache.getCompiled(replacementValue);
-            record = processAbsolutePath(replacementRecordPath, result.getSelectedFields(), record);
+
+            // If we have an Absolute RecordPath, we need to evaluate the RecordPath only once against the Record.
+            // If the RecordPath is a Relative Path, then we have to evaluate it against each FieldValue.
+            record = processAbsolutePath(replacementRecordPath, result.getSelectedFields(), record,context);
         }
 
         record.incorporateInactiveFields();
+        return  record;
+    };
 
-        return record;
+    private Record processAbsolutePath(final RecordPath replacementRecordPath, final Stream<FieldValue> destinationFields, final Record record,
+                                   ProcessContext context ) {
+        final RecordPathResult replacementResult = replacementRecordPath.evaluate(record);
+        final List<FieldValue> selectedFields = replacementResult.getSelectedFields().collect(Collectors.toList());
+//        getLogger().info(selectedFields.toString());
+        final List<FieldValue> destinationFieldValues = destinationFields.collect(Collectors.toList());
+        return updateRecord(destinationFieldValues, selectedFields, record, context);
     }
-    private void updateFieldValue(final FieldValue fieldValue, final Object replacement) {
 
-        if (replacement instanceof FieldValue) {
-            final FieldValue replacementFieldValue = (FieldValue) replacement;
-            fieldValue.updateValue(replacementFieldValue.getValue(), replacementFieldValue.getField().getDataType());
-        } else {
-            fieldValue.updateValue(replacement);
-        }
-    }
-    private Record updateRecord(final List<FieldValue> destinationFields, final List<FieldValue> selectedFields, final Record record) {
+    private Record updateRecord(final List<FieldValue> destinationFields, final List<FieldValue> selectedFields,
+                                final Record record,ProcessContext context) {
+
         if (destinationFields.size() == 1 && !destinationFields.get(0).getParentRecord().isPresent()) {
-            final Object replacement = getReplacementObject(selectedFields);
+            final Object replacement = getReplacementObject(selectedFields,context);
+            logger.info(replacement.toString());
             if (replacement == null) {
                 return record;
             }
@@ -270,29 +401,50 @@ public class EncryptRecordProcessor extends AbstractEncryptRecordProcessor {
 
             return mapRecord;
         } else {
+//            logger.info(destinationFields.size() + ": "+ destinationFields + " selected: " +selectedFields);
             for (final FieldValue fieldVal : destinationFields) {
-                final Object replacementObject = getReplacementObject(selectedFields);
+                final Object replacementObject = getReplacementObject(selectedFields,context);
+
                 updateFieldValue(fieldVal, replacementObject);
             }
             return record;
         }
     }
-    private Object getReplacementObject(final List<FieldValue> selectedFields) {
+    private Object getReplacementObject(final List<FieldValue> selectedFields, ProcessContext context) {
+//        getLogger().info("Getting replacememt: " + selectedFields.toString());
+        final String secretKey = context.getProperty(SECRET_KEY).getValue();
+        final String aes_algorithm = context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
+
         if (selectedFields.size() > 1) {
             final List<RecordField> fields = selectedFields.stream().map(FieldValue::getField).collect(Collectors.toList());
             final RecordSchema schema = new SimpleRecordSchema(fields);
             final Record record = new MapRecord(schema, new HashMap<>());
             for (final FieldValue fieldVal : selectedFields) {
-                record.setValue(fieldVal.getField(), fieldVal.getValue());
+                logger.info(fieldVal.getField().toString() +" aaa "+fieldVal.getValue().toString());
+               String en =encryption.encrypt(aes_algorithm,fieldVal.getValue().toString(),secretKey);
+                record.setValue(fieldVal.getField(),en);
             }
-
             return record;
         }
 
         if (selectedFields.isEmpty()) {
             return null;
         } else {
-            return selectedFields.get(0);
+            return encryption.encrypt(aes_algorithm,selectedFields.get(0).toString(),secretKey);
+        }
+    }
+    private void updateFieldValue(final FieldValue fieldValue, final Object replacement) {
+        if (replacement instanceof FieldValue) {
+            final FieldValue replacementFieldValue = (FieldValue) replacement;
+            fieldValue.updateValue(replacementFieldValue.getValue(), replacementFieldValue.getField().getDataType());
+        } else {
+            fieldValue.updateValue(replacement);
         }
     }
 }
+
+/**
+ *
+ * final String secretKey = context.getProperty(SECRET_KEY).getValue();
+ *         final String aes_algorithm = context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
+ */

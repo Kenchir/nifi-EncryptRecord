@@ -16,7 +16,6 @@
  */
 package com.safaricom.et.processors.EncryptionService;
 
-import org.apache.commons.lang3.SystemUtils;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordParser;
 import org.apache.nifi.serialization.record.MockRecordWriter;
@@ -24,9 +23,7 @@ import org.apache.nifi.serialization.record.RecordFieldType;
 import org.apache.nifi.util.MockFlowFile;
 import org.apache.nifi.util.TestRunner;
 import org.apache.nifi.util.TestRunners;
-import org.junit.Assume;
 import org.junit.Before;
-import org.junit.BeforeClass;
 import org.junit.Test;
 
 import java.security.NoSuchAlgorithmException;
@@ -42,10 +39,10 @@ public class EncryptRecordProcessorTest {
     private  EnecryptionTest enecryptionTest =new EnecryptionTest();
 
     //Apparently pretty printing is not portable as these tests fail on windows
-    @BeforeClass
-    public static void setUpSuite() {
-        Assume.assumeTrue("Test only runs on *nix", !SystemUtils.IS_OS_WINDOWS);
-    }
+//    @BeforeClass
+//    public static void setUpSuite() {
+//        Assume.assumeTrue("Test only runs on *nix", !SystemUtils.IS_OS_WINDOWS);
+//    }
 
     @Before
     public void init() throws InitializationException {
@@ -59,7 +56,6 @@ public class EncryptRecordProcessorTest {
 
         testRunner.setProperty(EncryptRecordProcessor.RECORD_READER, "reader");
         testRunner.setProperty(EncryptRecordProcessor.RECORD_WRITER, "writer");
-//        testRunner.setProperty("/msisdn","727399473");
         readerService.addSchemaField("name", RecordFieldType.STRING);
         readerService.addSchemaField("msisdn", RecordFieldType.STRING);
 
@@ -67,21 +63,21 @@ public class EncryptRecordProcessorTest {
 
     @Test
     public void testRecordPathReplacementValue() throws NoSuchAlgorithmException {
-        testRunner.setProperty("/name", "/msisdn");
+        testRunner.setProperty("/var_name", "/name");
+        testRunner.setProperty("/var_msisdn", "/msisdn");
         testRunner.setProperty(EncryptRecordProcessor.REPLACEMENT_VALUE_STRATEGY, EncryptRecordProcessor.RECORD_PATH_VALUES.getValue());
-        testRunner.setProperty(EncryptRecordProcessor.ENCRYPTION_ALGORITHM_TYPE,EncryptRecordProcessor.AES_CBC_VALUES);
-        testRunner.setProperty(EncryptRecordProcessor.KEY_SIZE,EncryptRecordProcessor.KEY_SIZE_192_VALUES);
+        testRunner.setProperty(EncryptRecordProcessor.ENCRYPTION_ALGORITHM_TYPE, EncryptRecordProcessor.AES_CBC_VALUES);
+        testRunner.setProperty(EncryptRecordProcessor.KEY_SIZE, EncryptRecordProcessor.KEY_SIZE_192_VALUES);
         testRunner.setProperty(EncryptRecordProcessor.SECRET_KEY,enecryptionTest.generateKey(192));
 
 
         testRunner.enqueue("");
-
-        readerService.addRecord("John Doe", 35);
+        readerService.addRecord("John", "727399473");
         testRunner.run();
 
         testRunner.assertAllFlowFilesTransferred(EncryptRecordProcessor.REL_SUCCESS, 1);
         final MockFlowFile out = testRunner.getFlowFilesForRelationship(EncryptRecordProcessor.REL_SUCCESS).get(0);
         System.out.println(out.toString());
-        out.assertContentEquals("header\n35,35\n");
+        out.assertContentEquals("header\n727399473,727399473\n");
     }
 }

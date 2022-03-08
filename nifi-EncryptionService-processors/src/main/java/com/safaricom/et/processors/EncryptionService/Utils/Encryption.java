@@ -30,14 +30,33 @@ public  class Encryption {
      */
 
     public String encrypt(final String algorithm, final String plainText,final String key)
-            throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException,
-            InvalidAlgorithmParameterException, InvalidKeyException {
+            {
 
         SecretKeySpec secretKeySpec = new SecretKeySpec(Base64.getDecoder().decode(key), "AES");
-        Cipher cipher = Cipher.getInstance(algorithm);
-        cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, new IvParameterSpec(new byte[16]));
-        byte[] cipherText = cipher.doFinal(plainText.getBytes());
-        return Base64.getEncoder().encodeToString(cipherText);
+                Cipher cipher = null;
+                try {
+                    cipher = Cipher.getInstance(algorithm);
+                } catch (NoSuchAlgorithmException e) {
+                    e.printStackTrace();
+                } catch (NoSuchPaddingException e) {
+                    e.printStackTrace();
+                }
+                try {
+                    cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, new IvParameterSpec(new byte[16]));
+                } catch (InvalidKeyException e) {
+                    e.printStackTrace();
+                } catch (InvalidAlgorithmParameterException e) {
+                    e.printStackTrace();
+                }
+                byte[] cipherText = new byte[0];
+                try {
+                    cipherText = cipher.doFinal(plainText.getBytes());
+                } catch (IllegalBlockSizeException e) {
+                    e.printStackTrace();
+                } catch (BadPaddingException e) {
+                    e.printStackTrace();
+                }
+                return Base64.getEncoder().encodeToString(cipherText);
     }
 
     /**
