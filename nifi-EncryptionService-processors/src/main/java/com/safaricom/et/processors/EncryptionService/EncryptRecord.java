@@ -7,8 +7,6 @@ import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.logging.ComponentLog;
-import org.apache.nifi.logging.LogMessage;
 import org.apache.nifi.processor.*;
 
 import java.io.IOException;
@@ -48,17 +46,38 @@ import org.apache.nifi.serialization.RecordReaderFactory;
 import static java.lang.Integer.parseInt;
 
 
-@Tags({"example"})
-@CapabilityDescription("Provide a description")
+@Tags({"encryption", "decryption", "password", "JCE", "OpenPGP", "PGP", "GPG", "KDF", "Argon2", "Bcrypt", "Scrypt", "PBKDF2", "salt", "iv"})
+@CapabilityDescription("Encrypts or Decrypts a FlowFile records using  symmetric encryption with a raw key  " +
+        "and randomly generated salt, or asymmetric encryption using a public and secret key.")
 @SeeAlso({})
 @ReadsAttributes({@ReadsAttribute(attribute = "", description = "")})
 @WritesAttributes({@WritesAttribute(attribute = "", description = "")})
 
-public class EncryptRecordProcessor extends AbstractProcessor {
+public class EncryptRecord extends AbstractProcessor {
     Logger logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
     public  static  final Encryption encryption = new Encryption();
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
+
+
+    static final AllowableValue LITERAL_VALUES = new AllowableValue("literal-value", "Literal Value",
+            "The value entered for a Property (after Expression Language has been evaluated) is the desired value to update the Record Fields with. Expression Language "
+                    + "may reference variables 'field.name', 'field.type', and 'field.value' to access information about the field and the value of the field being evaluated.");
+    static final AllowableValue RECORD_PATH_VALUES = new AllowableValue("record-path-value", "Record Path Value",
+            "The value entered for a Property (after Expression Language has been evaluated) is not the literal value to use but rather is a Record Path "
+                    + "that should be evaluated against the Record, and the result of the RecordPath will be used to update the Record. Note that if this option is selected, "
+                    + "and the Record Path results in multiple values for a given Record, the input FlowFile will be routed to the 'failure' Relationship.");
+
+    static final AllowableValue AES_ECB_VALUES= new AllowableValue("AES/ECB/PKCS5Padding","AES_ECB");
+    static final AllowableValue AES_CBC_VALUES= new AllowableValue("AES/CBC/PKCS5Padding","AES_CBC");
+    static final AllowableValue KEY_SIZE_128_VALUES =new AllowableValue("128","AES_128");
+    static final AllowableValue KEY_SIZE_192_VALUES =new AllowableValue("192","AES_192");
+    static final AllowableValue KEY_SIZE_256_VALUES =new AllowableValue("256","AES_256");
+    static  final  AllowableValue   ENCRYPT_MODE =  new AllowableValue("Encrypt","Encrypt");
+    static  final  AllowableValue   DECRYPT_MODE =  new AllowableValue("Decrypt","Decrypt");
+//    public static final String DECRYPT_MODE = "";
+
+
     public static final   PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
             .name("record-reader")
             .displayName("Record Reader")
@@ -75,20 +94,16 @@ public class EncryptRecordProcessor extends AbstractProcessor {
             .required(true)
             .build();
 
-    public static final  Relationship REL_SUCCESS = new Relationship.Builder()
-            .name("success")
-            .description("FlowFiles that are successfully transformed will be routed to this relationship")
+    public static final PropertyDescriptor MODE = new PropertyDescriptor.Builder()
+            .name("Mode")
+            .displayName("Mode")
+            .description("Specifies whether the content should be encrypted or decrypted")
+            .allowableValues(ENCRYPT_MODE, DECRYPT_MODE)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .required(true)
             .build();
 
-    public static final Relationship REL_FAILURE = new Relationship.Builder()
-            .name("failure")
-            .description("If a FlowFile cannot be transformed from the configured input format to the configured output format, "
-                    + "the unchanged FlowFile will be routed to this relationship")
-            .build();
-    public static final Relationship REL_ORIGINAL = new Relationship.Builder()
-            .name("original")
-            .description(" Unchanged FlowFile will be routed to this relationship after success transformation.")
-            .build();
+
 
     public  static final PropertyDescriptor INCLUDE_ZERO_RECORD_FLOWFILES = new PropertyDescriptor.Builder()
             .name("include-zero-record-flowfiles")
@@ -101,21 +116,7 @@ public class EncryptRecordProcessor extends AbstractProcessor {
             .required(true)
             .build();
 
-    static final AllowableValue LITERAL_VALUES = new AllowableValue("literal-value", "Literal Value",
-            "The value entered for a Property (after Expression Language has been evaluated) is the desired value to update the Record Fields with. Expression Language "
-                    + "may reference variables 'field.name', 'field.type', and 'field.value' to access information about the field and the value of the field being evaluated.");
-    static final AllowableValue RECORD_PATH_VALUES = new AllowableValue("record-path-value", "Record Path Value",
-            "The value entered for a Property (after Expression Language has been evaluated) is not the literal value to use but rather is a Record Path "
-                    + "that should be evaluated against the Record, and the result of the RecordPath will be used to update the Record. Note that if this option is selected, "
-                    + "and the Record Path results in multiple values for a given Record, the input FlowFile will be routed to the 'failure' Relationship.");
-
-    static final AllowableValue AES_ECB_VALUES= new AllowableValue("AES/ECB/PKCS5Padding","AES/ECB/PKCS5Padding");
-    static final AllowableValue AES_CBC_VALUES= new AllowableValue("AES/CBC/PKCS5Padding","AES/CBC/PKCS5Padding");
-    static final AllowableValue KEY_SIZE_128_VALUES =new AllowableValue("128","128 bits.");
-    static final AllowableValue KEY_SIZE_192_VALUES =new AllowableValue("192","192 bits.");
-    static final AllowableValue KEY_SIZE_256_VALUES =new AllowableValue("256","256 bits.");
-
-//    public static final PropertyDescriptor REPLACEMENT_VALUE_STRATEGY  = new PropertyDescriptor
+//public static final PropertyDescriptor REPLACEMENT_VALUE_STRATEGY  = new PropertyDescriptor
 //            .Builder()
 //            .name("replacement-value-strategy")
 //            .displayName("Replacement Value Strategy")
@@ -162,6 +163,21 @@ public class EncryptRecordProcessor extends AbstractProcessor {
             .sensitive(true)
             .build();
 
+    public static final  Relationship REL_SUCCESS = new Relationship.Builder()
+            .name("success")
+            .description("FlowFile that its  records are successfully encrypted or decrypted will be routed to success")
+            .build();
+
+    public static final Relationship REL_FAILURE = new Relationship.Builder()
+            .name("failure")
+            .description("If a FlowFile cannot be transformed from the configured input format to the configured output format, "
+                    + "the unchanged FlowFile will be routed to this relationship")
+            .build();
+
+    public static final Relationship REL_ORIGINAL = new Relationship.Builder()
+            .name("original")
+            .description(" Unchanged FlowFile will be routed to this relationship after success transformation.")
+            .build();
     private List<PropertyDescriptor> descriptors;
     private Set<Relationship> relationships;
 
@@ -172,13 +188,14 @@ public class EncryptRecordProcessor extends AbstractProcessor {
         descriptors.add(RECORD_READER);
         descriptors.add(RECORD_WRITER);
 //        descriptors.add(REPLACEMENT_VALUE_STRATEGY);
+        descriptors.add(MODE);
         descriptors.add(ENCRYPTION_ALGORITHM_TYPE);
         descriptors.add(KEY_SIZE);
         descriptors.add(SECRET_KEY);
 
         this.descriptors = Collections.unmodifiableList(descriptors);
 
-        final Set<Relationship> relationships = new HashSet<Relationship>();
+        final Set<Relationship> relationships = new HashSet<>();
         relationships.add(REL_SUCCESS);
         relationships.add(REL_FAILURE);
 //        relationships.add(REL_ORIGINAL);
@@ -205,13 +222,14 @@ public class EncryptRecordProcessor extends AbstractProcessor {
                 .addValidator(new RecordPathPropertyNameValidator())
                 .build();
     }
+
     @Override
     protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
         final boolean containsDynamic = validationContext.getProperties().keySet().stream().anyMatch(PropertyDescriptor::isDynamic);
 
         if (containsDynamic) {
             String key =validationContext.getProperty(SECRET_KEY).getValue();
-            if(key != null){
+            if(key.length() >= 2){
                 final  boolean isKeyValid=encryption.KEY_VALIDATOR(validationContext.getProperty(SECRET_KEY).getValue()
                         ,parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
 
@@ -222,7 +240,7 @@ public class EncryptRecordProcessor extends AbstractProcessor {
             return Collections.singleton(new ValidationResult.Builder()
                     .subject(" Invalid AES key: ")
                     .valid(false)
-                    .explanation("Key  must be 16,24 or 32 bytes for 128, 192 or 256 key sizes  respectively")
+                    .explanation("Key  must be 16,24 or 32 bytes for 128, 192 or 256 key size  respectively")
                     .build());
         }
 
@@ -258,8 +276,6 @@ public class EncryptRecordProcessor extends AbstractProcessor {
         final RecordReaderFactory readerFactory = context.getProperty(RECORD_READER).asControllerService(RecordReaderFactory.class);
         final RecordSetWriterFactory writerFactory = context.getProperty(RECORD_WRITER).asControllerService(RecordSetWriterFactory.class);
         final boolean includeZeroRecordFlowFiles = context.getProperty(INCLUDE_ZERO_RECORD_FLOWFILES).isSet()? context.getProperty(INCLUDE_ZERO_RECORD_FLOWFILES).asBoolean():true;
-        final String secretKey = context.getProperty(SECRET_KEY).getValue();
-        final String aes_algorithm = context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
 
         final Map<String, String> attributes = new HashMap<>();
         final AtomicInteger recordCount = new AtomicInteger();
@@ -287,14 +303,14 @@ public class EncryptRecordProcessor extends AbstractProcessor {
                                 attributes.put("record.count", String.valueOf(writeResult.getRecordCount()));
                                 attributes.put(CoreAttributes.MIME_TYPE.key(), writer.getMimeType());
                                 attributes.putAll(writeResult.getAttributes());
-                                attributes.put("algorithm",aes_algorithm);
+                                attributes.put("algorithm", context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue());
                                 recordCount.set(writeResult.getRecordCount());
                             }
 
                             return;
                         }
 
-                        firstRecord = encryptRecord(firstRecord, original, context, 1L);
+                        firstRecord = processRecords(firstRecord, original, context, 1L);
 
                         final RecordSchema writeSchema = writerFactory.getSchema(originalAttributes, firstRecord.getSchema());
                         try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out, originalAttributes)) {
@@ -304,8 +320,8 @@ public class EncryptRecordProcessor extends AbstractProcessor {
                             Record record;
                             long count = 1L;
                             while ((record = reader.nextRecord()) != null) {
-//                                final Record processed = AbstractEncryptRecordProcessor.this.process(record, original, context, ++count);
-//                                writer.write(processed);
+                                final Record processed = processRecords(record, original, context, ++count);
+                                writer.write(processed);
                             }
 
                             final WriteResult writeResult = writer.finishRecordSet();
@@ -348,7 +364,7 @@ public class EncryptRecordProcessor extends AbstractProcessor {
         getLogger().info("Successfully converted {} records for {}", new Object[] {count, flowFile});
     }
 
-    protected  Record encryptRecord(Record record, FlowFile flowFile, ProcessContext context, long count){
+    protected  Record processRecords(Record record, FlowFile flowFile, ProcessContext context, long count){
 
         for (final String recordPathText : recordPaths) {
 //            getLogger().info("recordPathText: "+recordPathText);
@@ -406,28 +422,21 @@ public class EncryptRecordProcessor extends AbstractProcessor {
 
             return mapRecord;
         } else {
-//            logger.info(destinationFields.size() + ": "+ destinationFields + " selected: " +selectedFields);
             for (final FieldValue fieldVal : destinationFields) {
                 final Object replacementObject = getReplacementObject(selectedFields,context);
-
                 updateFieldValue(fieldVal, replacementObject);
             }
             return record;
         }
     }
-    private Object getReplacementObject(final List<FieldValue> selectedFields, ProcessContext context) {
-//        getLogger().info("Getting replacememt: " + selectedFields.toString());
-        final String secretKey = context.getProperty(SECRET_KEY).getValue();
-        final String aes_algorithm = context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
 
+    private Object getReplacementObject(final List<FieldValue> selectedFields, ProcessContext context) {
         if (selectedFields.size() > 1) {
             final List<RecordField> fields = selectedFields.stream().map(FieldValue::getField).collect(Collectors.toList());
             final RecordSchema schema = new SimpleRecordSchema(fields);
             final Record record = new MapRecord(schema, new HashMap<>());
             for (final FieldValue fieldVal : selectedFields) {
-                logger.info(fieldVal.getField().toString() +" aaa "+fieldVal.getValue().toString());
-               String en =encryption.encrypt(aes_algorithm,fieldVal.getValue().toString(),secretKey);
-                record.setValue(fieldVal.getField(),en);
+                record.setValue(fieldVal.getField(),getReplacementValue(fieldVal.getValue().toString(),context));
             }
             return record;
         }
@@ -435,9 +444,10 @@ public class EncryptRecordProcessor extends AbstractProcessor {
         if (selectedFields.isEmpty()) {
             return null;
         } else {
-            return encryption.encrypt(aes_algorithm,selectedFields.get(0).toString(),secretKey);
+            return getReplacementValue(selectedFields.get(0).toString(),context);
         }
     }
+
     private void updateFieldValue(final FieldValue fieldValue, final Object replacement) {
         if (replacement instanceof FieldValue) {
             final FieldValue replacementFieldValue = (FieldValue) replacement;
@@ -446,10 +456,19 @@ public class EncryptRecordProcessor extends AbstractProcessor {
             fieldValue.updateValue(replacement);
         }
     }
+
+    private  String getReplacementValue(String input,ProcessContext context){
+         final String secretKey = context.getProperty(SECRET_KEY).getValue();
+         final String aes_algorithm = context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
+
+        if (context.getProperty(MODE).getValue().equals("Encrypt")){
+
+            return  encryption.encrypt(aes_algorithm,input,secretKey);
+        }else{
+
+            return  encryption.decrypt(aes_algorithm,input,secretKey);
+        }
+
+    }
 }
 
-/**
- *
- * final String secretKey = context.getProperty(SECRET_KEY).getValue();
- *         final String aes_algorithm = context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
- */

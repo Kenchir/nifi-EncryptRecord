@@ -73,14 +73,33 @@ public  class Encryption {
      * @throws InvalidKeyException
      */
     public String decrypt(String algorithm, String cipherText, String key)
-            throws NoSuchPaddingException, NoSuchAlgorithmException, IllegalBlockSizeException, BadPaddingException,
-            InvalidAlgorithmParameterException, InvalidKeyException {
+      {
 
         SecretKeySpec secretKeySpec = new SecretKeySpec(Base64.getDecoder().decode(key), "AES");
-        Cipher cipher = Cipher.getInstance(algorithm);
-        cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, new IvParameterSpec(new byte[16]));
-        byte[] plainText = cipher.doFinal(Base64.getDecoder().decode(cipherText));
-        return new String(plainText);
+          Cipher cipher = null;
+          try {
+              cipher = Cipher.getInstance(algorithm);
+          } catch (NoSuchAlgorithmException e) {
+              e.printStackTrace();
+          } catch (NoSuchPaddingException e) {
+              e.printStackTrace();
+          }
+          try {
+              cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, new IvParameterSpec(new byte[16]));
+          } catch (InvalidKeyException e) {
+              e.printStackTrace();
+          } catch (InvalidAlgorithmParameterException e) {
+              e.printStackTrace();
+          }
+          byte[] plainText = new byte[0];
+          try {
+              plainText = cipher.doFinal(Base64.getDecoder().decode(cipherText));
+          } catch (IllegalBlockSizeException e) {
+              e.printStackTrace();
+          } catch (BadPaddingException e) {
+              e.printStackTrace();
+          }
+          return new String(plainText);
     }
 
     /***
@@ -90,7 +109,6 @@ public  class Encryption {
      * key length should be 16 bytes.
      */
     public   boolean KEY_VALIDATOR(String key, int keySize){
-        System.out.println(Base64.getDecoder().decode(key).length );
 
         return  keySize / Base64.getDecoder().decode(key).length == 8? true: false;
 
