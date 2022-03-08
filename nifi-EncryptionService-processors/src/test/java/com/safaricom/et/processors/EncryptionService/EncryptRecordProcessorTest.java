@@ -16,6 +16,7 @@
  */
 package com.safaricom.et.processors.EncryptionService;
 
+import com.safaricom.et.processors.EncryptionService.Utils.Encryption;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordParser;
 import org.apache.nifi.serialization.record.MockRecordWriter;
@@ -37,7 +38,7 @@ public class EncryptRecordProcessorTest {
     private MockRecordParser readerService;
     private MockRecordWriter writerService;
     private  EnecryptionTest enecryptionTest =new EnecryptionTest();
-
+    private Encryption  encryption = new Encryption();
     //Apparently pretty printing is not portable as these tests fail on windows
 //    @BeforeClass
 //    public static void setUpSuite() {
@@ -65,10 +66,13 @@ public class EncryptRecordProcessorTest {
     public void testRecordPathReplacementValue() throws NoSuchAlgorithmException {
         testRunner.setProperty("/var_name", "/name");
         testRunner.setProperty("/var_msisdn", "/msisdn");
-        testRunner.setProperty(EncryptRecordProcessor.REPLACEMENT_VALUE_STRATEGY, EncryptRecordProcessor.RECORD_PATH_VALUES.getValue());
+        String key = enecryptionTest.generateKey(192);
+        System.out.println(key);
+        String algo = "AES/CBC/PKCS5Padding";
+//        testRunner.setProperty(EncryptRecordProcessor.REPLACEMENT_VALUE_STRATEGY, EncryptRecordProcessor.RECORD_PATH_VALUES.getValue());
         testRunner.setProperty(EncryptRecordProcessor.ENCRYPTION_ALGORITHM_TYPE, EncryptRecordProcessor.AES_CBC_VALUES);
         testRunner.setProperty(EncryptRecordProcessor.KEY_SIZE, EncryptRecordProcessor.KEY_SIZE_192_VALUES);
-        testRunner.setProperty(EncryptRecordProcessor.SECRET_KEY,enecryptionTest.generateKey(192));
+        testRunner.setProperty(EncryptRecordProcessor.SECRET_KEY,key);
 
 
         testRunner.enqueue("");
@@ -77,7 +81,7 @@ public class EncryptRecordProcessorTest {
 
         testRunner.assertAllFlowFilesTransferred(EncryptRecordProcessor.REL_SUCCESS, 1);
         final MockFlowFile out = testRunner.getFlowFilesForRelationship(EncryptRecordProcessor.REL_SUCCESS).get(0);
-        System.out.println(out.toString());
-        out.assertContentEquals("header\n727399473,727399473\n");
+//        System.out.println(out.toString());
+        out.assertContentEquals("header\nJohn,727399473,"+encryption.encrypt(algo,"727399473",key)+","+encryption.encrypt(algo,"John",key)+"\n");
     }
 }

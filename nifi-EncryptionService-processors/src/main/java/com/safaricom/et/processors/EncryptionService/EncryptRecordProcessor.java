@@ -1,6 +1,7 @@
 package com.safaricom.et.processors.EncryptionService;
 
 
+
 import com.safaricom.et.processors.EncryptionService.Utils.Encryption;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
@@ -42,6 +43,7 @@ import org.apache.nifi.annotation.behavior.WritesAttributes;
 import org.apache.nifi.annotation.lifecycle.OnScheduled;
 import org.apache.nifi.annotation.documentation.CapabilityDescription;
 import org.apache.nifi.annotation.documentation.SeeAlso;
+import org.apache.nifi.serialization.RecordReaderFactory;
 
 import static java.lang.Integer.parseInt;
 
@@ -113,17 +115,17 @@ public class EncryptRecordProcessor extends AbstractProcessor {
     static final AllowableValue KEY_SIZE_192_VALUES =new AllowableValue("192","192 bits.");
     static final AllowableValue KEY_SIZE_256_VALUES =new AllowableValue("256","256 bits.");
 
-    public static final PropertyDescriptor REPLACEMENT_VALUE_STRATEGY  = new PropertyDescriptor
-            .Builder()
-            .name("replacement-value-strategy")
-            .displayName("Replacement Value Strategy")
-            .description("Specifies how to interpret the configured replacement values")
-            .allowableValues(RECORD_PATH_VALUES,LITERAL_VALUES)
-            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-            .defaultValue(LITERAL_VALUES.getValue())
-            .required(true)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .build();
+//    public static final PropertyDescriptor REPLACEMENT_VALUE_STRATEGY  = new PropertyDescriptor
+//            .Builder()
+//            .name("replacement-value-strategy")
+//            .displayName("Replacement Value Strategy")
+//            .description("Specifies how to interpret the configured replacement values")
+//            .allowableValues(RECORD_PATH_VALUES,LITERAL_VALUES)
+//            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+//            .defaultValue(RECORD_PATH_VALUES.getValue())
+//            .required(true)
+//            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+//            .build();
 
     public static  final PropertyDescriptor ENCRYPTION_ALGORITHM_TYPE = new PropertyDescriptor
             .Builder()
@@ -141,11 +143,11 @@ public class EncryptRecordProcessor extends AbstractProcessor {
             .name("key-size")
             .displayName("Key Size")
             .description("Specifies the key size used in AES.")
-            .required(true)
             .allowableValues(KEY_SIZE_128_VALUES,KEY_SIZE_192_VALUES,KEY_SIZE_256_VALUES)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-            .dependsOn(ENCRYPTION_ALGORITHM_TYPE, "true")
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+//            .dependsOn(ENCRYPTION_ALGORITHM_TYPE, "true")
+            .required(true)
             .build();
 
     public static final PropertyDescriptor SECRET_KEY = new PropertyDescriptor
@@ -155,19 +157,21 @@ public class EncryptRecordProcessor extends AbstractProcessor {
             .description("Specifies key used for AES encryption")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .dependsOn(KEY_SIZE, "true")
+//            .dependsOn(KEY_SIZE, "true")
+            .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
+            .sensitive(true)
             .build();
 
     private List<PropertyDescriptor> descriptors;
     private Set<Relationship> relationships;
-    private ComponentLog logger1;
+
 
     @Override
     protected void init(final ProcessorInitializationContext context) {
         final List<PropertyDescriptor> descriptors = new ArrayList<>();
-        descriptors.add(RECORD_WRITER);
         descriptors.add(RECORD_READER);
-        descriptors.add(REPLACEMENT_VALUE_STRATEGY);
+        descriptors.add(RECORD_WRITER);
+//        descriptors.add(REPLACEMENT_VALUE_STRATEGY);
         descriptors.add(ENCRYPTION_ALGORITHM_TYPE);
         descriptors.add(KEY_SIZE);
         descriptors.add(SECRET_KEY);
@@ -177,7 +181,7 @@ public class EncryptRecordProcessor extends AbstractProcessor {
         final Set<Relationship> relationships = new HashSet<Relationship>();
         relationships.add(REL_SUCCESS);
         relationships.add(REL_FAILURE);
-        relationships.add(REL_ORIGINAL);
+//        relationships.add(REL_ORIGINAL);
         this.relationships = Collections.unmodifiableSet(relationships);
     }
     @Override
@@ -189,6 +193,7 @@ public class EncryptRecordProcessor extends AbstractProcessor {
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return this.descriptors;
     }
+
     @Override
     protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
         return new PropertyDescriptor.Builder()
@@ -215,7 +220,7 @@ public class EncryptRecordProcessor extends AbstractProcessor {
                 }
             }
             return Collections.singleton(new ValidationResult.Builder()
-                    .subject(" Invalid AES key length")
+                    .subject(" Invalid AES key: ")
                     .valid(false)
                     .explanation("Key  must be 16,24 or 32 bytes for 128, 192 or 256 key sizes  respectively")
                     .build());
