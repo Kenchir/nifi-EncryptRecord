@@ -28,8 +28,8 @@
     <packaging>pom</packaging>
 
     <modules>
-        <module>nifi-EncryptionService-processors</module>
-        <module>nifi-EncryptionService-nar</module>
+        <module>nifi-encrypt-record-nar</module>
+        <module>nifi-encrypt-record-processor</module>
     </modules>
 
 </project>
