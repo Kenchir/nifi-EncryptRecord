@@ -19,11 +19,11 @@
     <parent>
         <groupId>com.safaricom.et</groupId>
         <artifactId>Encryption</artifactId>
-        <version>1.0.0</version>
+        <version>1.15.0</version>
     </parent>
 
-    <artifactId>nifi-custom-nar</artifactId>
-    <version>1.0.0</version>
+    <artifactId>nifi-encrypt-record-nar</artifactId>
+    <version>1.15.0</version>
     <packaging>nar</packaging>
     <properties>
         <maven.javadoc.skip>true</maven.javadoc.skip>
@@ -39,8 +39,8 @@
         </dependency>
         <dependency>
             <groupId>com.safaricom.et</groupId>
-            <artifactId>nifi-EncryptionService-processors</artifactId>
-            <version>1.0.0</version>
+            <artifactId>nifi-encrypt-record-processor</artifactId>
+            <version>1.15.0</version>
         </dependency>
     </dependencies>
 
