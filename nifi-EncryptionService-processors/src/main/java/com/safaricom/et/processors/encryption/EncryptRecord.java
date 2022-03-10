@@ -1,4 +1,4 @@
-package com.safaricom.et.processors.EncryptionService;
+package com.safaricom.et.processors.encryption;
 
 
 
@@ -239,8 +239,8 @@ public class EncryptRecord extends AbstractProcessor {
             if (validationContext.getProperty(MODE).equals(ENCRYPT_MODE) || validationContext.getProperty(MODE).equals(DECRYPT_MODE) ){
                 String key =validationContext.getProperty(SECRET_KEY).getValue();
                 if(key.length() >= 2){
-                    final  boolean isKeyValid=encryption.KEY_VALIDATOR(validationContext.getProperty(SECRET_KEY).getValue()
-                            ,parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
+                    final  boolean isKeyValid=KeyValidator(validationContext.getProperty(SECRET_KEY).getValue(),
+                            parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
 
                     if(isKeyValid){
                         return Collections.emptyList();
