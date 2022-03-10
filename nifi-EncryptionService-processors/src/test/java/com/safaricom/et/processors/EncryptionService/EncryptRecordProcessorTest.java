@@ -28,6 +28,7 @@ import org.junit.Before;
 import org.junit.Test;
 
 import java.security.NoSuchAlgorithmException;
+import java.util.Base64;
 
 import static java.lang.Integer.parseInt;
 
@@ -66,15 +67,14 @@ public class EncryptRecordProcessorTest {
     public void testRecordEncryption()  {
         testRunner.setProperty("/var_name", "/name");
         testRunner.setProperty("/var_msisdn", "/msisdn");
-        String key = "n9Tp9+69gxNdUg9F632u1cCRuqcOuGmN";
-        System.out.println(key);
+        String key = Base64.getEncoder().encodeToString("abcdefghijklmnop91234567".getBytes());
+
         String algo = "AES/CBC/PKCS5Padding";
-//        testRunner.setProperty(EncryptRecordProcessor.REPLACEMENT_VALUE_STRATEGY, EncryptRecordProcessor.RECORD_PATH_VALUES.getValue());
+
         testRunner.setProperty(EncryptRecord.MODE,EncryptRecord.ENCRYPT_MODE);
         testRunner.setProperty(EncryptRecord.ENCRYPTION_ALGORITHM_TYPE, EncryptRecord.AES_CBC_VALUES);
-        testRunner.setProperty(EncryptRecord.KEY_SIZE, EncryptRecord.KEY_SIZE_192_VALUES);
+        testRunner.setProperty(EncryptRecord.KEY_SIZE, EncryptRecord.KEY_SIZE_192);
         testRunner.setProperty(EncryptRecord.SECRET_KEY,key);
-
 
         testRunner.enqueue("");
         readerService.addRecord("Ken", "727399473");
@@ -89,13 +89,12 @@ public class EncryptRecordProcessorTest {
     public void testRecordDecryption() throws NoSuchAlgorithmException {
         testRunner.setProperty("/var_name", "/name");
         testRunner.setProperty("/var_msisdn", "/msisdn");
-        String key = "n9Tp9+69gxNdUg9F632u1cCRuqcOuGmN";
-        System.out.println(key);
+        String key = Base64.getEncoder().encodeToString("abcdefghijklmnop91234567".getBytes());
+
         String algo = "AES/CBC/PKCS5Padding";
-//        testRunner.setProperty(EncryptRecordProcessor.REPLACEMENT_VALUE_STRATEGY, EncryptRecordProcessor.RECORD_PATH_VALUES.getValue());
         testRunner.setProperty(EncryptRecord.MODE,EncryptRecord.DECRYPT_MODE);
         testRunner.setProperty(EncryptRecord.ENCRYPTION_ALGORITHM_TYPE, EncryptRecord.AES_CBC_VALUES);
-        testRunner.setProperty(EncryptRecord.KEY_SIZE, EncryptRecord.KEY_SIZE_192_VALUES);
+        testRunner.setProperty(EncryptRecord.KEY_SIZE, EncryptRecord.KEY_SIZE_128);
         testRunner.setProperty(EncryptRecord.SECRET_KEY,key);
         String testName =encryption.encrypt(algo,"Ken",key);
         String testMsisdn = encryption.encrypt(algo,"727399473",key);
@@ -107,6 +106,22 @@ public class EncryptRecordProcessorTest {
         testRunner.assertAllFlowFilesTransferred(EncryptRecord.REL_SUCCESS, 1);
         final MockFlowFile out = testRunner.getFlowFilesForRelationship(EncryptRecord.REL_SUCCESS).get(0);
         out.assertContentEquals("header\n"+testName+","+testMsisdn+",727399473,Ken\n");
+    }
+
+    @Test
+    public void testRecordHashing() throws NoSuchAlgorithmException {
+
+        testRunner.setProperty("/hashed_msisdn", "/msisdn");
+        testRunner.setProperty(EncryptRecord.MODE,EncryptRecord.HASH_MODE);
+        testRunner.setProperty(EncryptRecord.HASHING_ALGORITHMS, EncryptRecord.MD5);
+
+        testRunner.enqueue("");
+        readerService.addRecord("Ken", "727399473");
+        testRunner.run();
+
+        testRunner.assertAllFlowFilesTransferred(EncryptRecord.REL_SUCCESS, 1);
+        final MockFlowFile out = testRunner.getFlowFilesForRelationship(EncryptRecord.REL_SUCCESS).get(0);
+        out.assertContentEquals("header\nKen,727399473,67bd2c248f30989f413394a5049334ed\n");
     }
 
 }

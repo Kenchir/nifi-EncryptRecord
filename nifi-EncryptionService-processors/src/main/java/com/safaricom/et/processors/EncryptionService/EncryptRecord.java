@@ -3,10 +3,12 @@ package com.safaricom.et.processors.EncryptionService;
 
 
 import com.safaricom.et.processors.EncryptionService.Utils.Encryption;
+import com.safaricom.et.processors.EncryptionService.Utils.Hashing;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.*;
 
 import java.io.IOException;
@@ -54,7 +56,7 @@ import static java.lang.Integer.parseInt;
 @WritesAttributes({@WritesAttribute(attribute = "", description = "")})
 
 public class EncryptRecord extends AbstractProcessor {
-    Logger logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
+
     public  static  final Encryption encryption = new Encryption();
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
@@ -68,15 +70,20 @@ public class EncryptRecord extends AbstractProcessor {
                     + "that should be evaluated against the Record, and the result of the RecordPath will be used to update the Record. Note that if this option is selected, "
                     + "and the Record Path results in multiple values for a given Record, the input FlowFile will be routed to the 'failure' Relationship.");
 
-    static final AllowableValue AES_ECB_VALUES= new AllowableValue("AES/ECB/PKCS5Padding","AES_ECB");
-    static final AllowableValue AES_CBC_VALUES= new AllowableValue("AES/CBC/PKCS5Padding","AES_CBC");
-    static final AllowableValue KEY_SIZE_128_VALUES =new AllowableValue("128","AES_128");
-    static final AllowableValue KEY_SIZE_192_VALUES =new AllowableValue("192","AES_192");
-    static final AllowableValue KEY_SIZE_256_VALUES =new AllowableValue("256","AES_256");
+
     static  final  AllowableValue   ENCRYPT_MODE =  new AllowableValue("Encrypt","Encrypt");
     static  final  AllowableValue   DECRYPT_MODE =  new AllowableValue("Decrypt","Decrypt");
-//    public static final String DECRYPT_MODE = "";
+    static  final  AllowableValue   HASH_MODE =  new AllowableValue("Hash","Hash");
 
+    static final  AllowableValue MD5 = new AllowableValue("MD5","MD5");
+    static final  AllowableValue SHA_1 = new AllowableValue("SHA-1","SHA-1");
+    static final  AllowableValue SHA_256 = new AllowableValue("SHA-256","SHA-256");
+
+    static final AllowableValue AES_ECB_VALUES= new AllowableValue("AES/ECB/PKCS5Padding","AES_ECB");
+    static final AllowableValue AES_CBC_VALUES= new AllowableValue("AES/CBC/PKCS5Padding","AES_CBC");
+    static final AllowableValue KEY_SIZE_128 =new AllowableValue("128","AES_128");
+    static final AllowableValue KEY_SIZE_192 =new AllowableValue("192","AES_192");
+    static final AllowableValue KEY_SIZE_256=new AllowableValue("256","AES_256");
 
     public static final   PropertyDescriptor RECORD_READER = new PropertyDescriptor.Builder()
             .name("record-reader")
@@ -94,17 +101,6 @@ public class EncryptRecord extends AbstractProcessor {
             .required(true)
             .build();
 
-    public static final PropertyDescriptor MODE = new PropertyDescriptor.Builder()
-            .name("Mode")
-            .displayName("Mode")
-            .description("Specifies whether the content should be encrypted or decrypted")
-            .allowableValues(ENCRYPT_MODE, DECRYPT_MODE)
-            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-            .required(true)
-            .build();
-
-
-
     public  static final PropertyDescriptor INCLUDE_ZERO_RECORD_FLOWFILES = new PropertyDescriptor.Builder()
             .name("include-zero-record-flowfiles")
             .displayName("Include Zero Record FlowFiles")
@@ -115,26 +111,35 @@ public class EncryptRecord extends AbstractProcessor {
             .defaultValue("true")
             .required(true)
             .build();
-
-//public static final PropertyDescriptor REPLACEMENT_VALUE_STRATEGY  = new PropertyDescriptor
-//            .Builder()
-//            .name("replacement-value-strategy")
-//            .displayName("Replacement Value Strategy")
-//            .description("Specifies how to interpret the configured replacement values")
-//            .allowableValues(RECORD_PATH_VALUES,LITERAL_VALUES)
-//            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-//            .defaultValue(RECORD_PATH_VALUES.getValue())
-//            .required(true)
-//            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-//            .build();
+    public static final PropertyDescriptor MODE = new PropertyDescriptor.Builder()
+            .name("Mode")
+            .displayName("Mode")
+            .description("Specifies whether the content should be encrypted or decrypted")
+            .allowableValues(ENCRYPT_MODE, DECRYPT_MODE,HASH_MODE)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .required(true)
+            .build();
 
     public static  final PropertyDescriptor ENCRYPTION_ALGORITHM_TYPE = new PropertyDescriptor
             .Builder()
             .name("encryption-algorithm-type")
-            .displayName("Encryption Algorithm")
+            .displayName("Algorithm")
             .description("Specifies the type of algorithm used for encryption")
             .allowableValues(AES_CBC_VALUES,AES_ECB_VALUES)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .dependsOn(MODE,DECRYPT_MODE.getValue(),ENCRYPT_MODE.getValue())
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .required(true)
+            .build();
+
+    public static  final PropertyDescriptor HASHING_ALGORITHMS = new PropertyDescriptor
+            .Builder()
+            .name("hashing-algorithm")
+            .displayName("Algorithm")
+            .description("Specifies the type of algorithm used for hashing")
+            .allowableValues(MD5,SHA_1,SHA_256)
+            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .dependsOn(MODE,HASH_MODE.getValue())
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .required(true)
             .build();
@@ -144,10 +149,10 @@ public class EncryptRecord extends AbstractProcessor {
             .name("key-size")
             .displayName("Key Size")
             .description("Specifies the key size used in AES.")
-            .allowableValues(KEY_SIZE_128_VALUES,KEY_SIZE_192_VALUES,KEY_SIZE_256_VALUES)
+            .allowableValues(KEY_SIZE_128,KEY_SIZE_192,KEY_SIZE_256)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-//            .dependsOn(ENCRYPTION_ALGORITHM_TYPE, "true")
+            .dependsOn(ENCRYPTION_ALGORITHM_TYPE, AES_CBC_VALUES.getValue(),AES_ECB_VALUES.getValue())
             .required(true)
             .build();
 
@@ -158,7 +163,7 @@ public class EncryptRecord extends AbstractProcessor {
             .description("Specifies key used for AES encryption")
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-//            .dependsOn(KEY_SIZE, "true")
+            .dependsOn(KEY_SIZE, KEY_SIZE_128.getValue(),KEY_SIZE_192.getValue(),KEY_SIZE_256.getValue())
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .sensitive(true)
             .build();
@@ -187,10 +192,11 @@ public class EncryptRecord extends AbstractProcessor {
         final List<PropertyDescriptor> descriptors = new ArrayList<>();
         descriptors.add(RECORD_READER);
         descriptors.add(RECORD_WRITER);
-//        descriptors.add(REPLACEMENT_VALUE_STRATEGY);
         descriptors.add(MODE);
         descriptors.add(ENCRYPTION_ALGORITHM_TYPE);
+        descriptors.add(HASHING_ALGORITHMS);
         descriptors.add(KEY_SIZE);
+
         descriptors.add(SECRET_KEY);
 
         this.descriptors = Collections.unmodifiableList(descriptors);
@@ -198,7 +204,7 @@ public class EncryptRecord extends AbstractProcessor {
         final Set<Relationship> relationships = new HashSet<>();
         relationships.add(REL_SUCCESS);
         relationships.add(REL_FAILURE);
-//        relationships.add(REL_ORIGINAL);
+
         this.relationships = Collections.unmodifiableSet(relationships);
     }
     @Override
@@ -210,6 +216,7 @@ public class EncryptRecord extends AbstractProcessor {
     public final List<PropertyDescriptor> getSupportedPropertyDescriptors() {
         return this.descriptors;
     }
+
 
     @Override
     protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
@@ -228,20 +235,25 @@ public class EncryptRecord extends AbstractProcessor {
         final boolean containsDynamic = validationContext.getProperties().keySet().stream().anyMatch(PropertyDescriptor::isDynamic);
 
         if (containsDynamic) {
-            String key =validationContext.getProperty(SECRET_KEY).getValue();
-            if(key.length() >= 2){
-                final  boolean isKeyValid=encryption.KEY_VALIDATOR(validationContext.getProperty(SECRET_KEY).getValue()
-                        ,parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
+            if (validationContext.getProperty(MODE).equals(ENCRYPT_MODE) || validationContext.getProperty(MODE).equals(DECRYPT_MODE) ){
+                String key =validationContext.getProperty(SECRET_KEY).getValue();
+                if(key.length() >= 2){
+                    final  boolean isKeyValid=encryption.KEY_VALIDATOR(validationContext.getProperty(SECRET_KEY).getValue()
+                            ,parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
 
-                if(isKeyValid){
-                    return Collections.emptyList();
+                    if(isKeyValid){
+                        return Collections.emptyList();
+                    }
                 }
+                return Collections.singleton(new ValidationResult.Builder()
+                        .subject(" Invalid AES key: ")
+                        .valid(false)
+                        .explanation("Key  must be 16,24 or 32 bytes for 128, 192 or 256 key size  respectively")
+                        .build());
             }
-            return Collections.singleton(new ValidationResult.Builder()
-                    .subject(" Invalid AES key: ")
-                    .valid(false)
-                    .explanation("Key  must be 16,24 or 32 bytes for 128, 192 or 256 key size  respectively")
-                    .build());
+            return Collections.emptyList();
+
+
         }
 
         return Collections.singleton(new ValidationResult.Builder()
@@ -259,7 +271,7 @@ public class EncryptRecord extends AbstractProcessor {
         final List<String> recordPaths = new ArrayList<>(context.getProperties().size() - 2);
         for (final PropertyDescriptor property : context.getProperties().keySet()) {
             if (property.isDynamic()) {
-                logger.info("Record property: " +  property.getName() + " value: " + property.getDefaultValue());
+
                 recordPaths.add(property.getName());
             }
         }
@@ -398,7 +410,7 @@ public class EncryptRecord extends AbstractProcessor {
 
         if (destinationFields.size() == 1 && !destinationFields.get(0).getParentRecord().isPresent()) {
             final Object replacement = getReplacementObject(selectedFields,context);
-            logger.info(replacement.toString());
+
             if (replacement == null) {
                 return record;
             }
@@ -464,9 +476,13 @@ public class EncryptRecord extends AbstractProcessor {
         if (context.getProperty(MODE).getValue().equals("Encrypt")){
 
             return  encryption.encrypt(aes_algorithm,input,secretKey);
-        }else{
+        }else if(context.getProperty(MODE).getValue().equals("Decrypt")){
 
             return  encryption.decrypt(aes_algorithm,input,secretKey);
+        }else {
+
+            Hashing hashing = new Hashing();
+            return  hashing.hashMessage( context.getProperty(HASHING_ALGORITHMS).getValue(),input);
         }
 
     }

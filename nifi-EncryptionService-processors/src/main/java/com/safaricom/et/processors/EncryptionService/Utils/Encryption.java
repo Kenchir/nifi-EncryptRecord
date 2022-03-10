@@ -32,7 +32,8 @@ public  class Encryption {
     public String encrypt(final String algorithm, final String plainText,final String key)
             {
 
-        SecretKeySpec secretKeySpec = new SecretKeySpec(Base64.getDecoder().decode(key), "AES");
+            SecretKeySpec secretKeySpec = new SecretKeySpec(Base64.getDecoder().decode(key), "AES");
+
                 Cipher cipher = null;
                 try {
                     cipher = Cipher.getInstance(algorithm);
@@ -41,6 +42,7 @@ public  class Encryption {
                 } catch (NoSuchPaddingException e) {
                     e.printStackTrace();
                 }
+
                 try {
                     cipher.init(Cipher.ENCRYPT_MODE, secretKeySpec, new IvParameterSpec(new byte[16]));
                 } catch (InvalidKeyException e) {
@@ -48,6 +50,7 @@ public  class Encryption {
                 } catch (InvalidAlgorithmParameterException e) {
                     e.printStackTrace();
                 }
+
                 byte[] cipherText = new byte[0];
                 try {
                     cipherText = cipher.doFinal(plainText.getBytes());
@@ -56,6 +59,7 @@ public  class Encryption {
                 } catch (BadPaddingException e) {
                     e.printStackTrace();
                 }
+
                 return Base64.getEncoder().encodeToString(cipherText);
     }
 
@@ -84,6 +88,7 @@ public  class Encryption {
           } catch (NoSuchPaddingException e) {
               e.printStackTrace();
           }
+
           try {
               cipher.init(Cipher.DECRYPT_MODE, secretKeySpec, new IvParameterSpec(new byte[16]));
           } catch (InvalidKeyException e) {
@@ -91,6 +96,7 @@ public  class Encryption {
           } catch (InvalidAlgorithmParameterException e) {
               e.printStackTrace();
           }
+
           byte[] plainText = new byte[0];
           try {
               plainText = cipher.doFinal(Base64.getDecoder().decode(cipherText));
@@ -99,6 +105,7 @@ public  class Encryption {
           } catch (BadPaddingException e) {
               e.printStackTrace();
           }
+
           return new String(plainText);
     }
 
