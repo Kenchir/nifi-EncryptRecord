@@ -1,4 +1,4 @@
-package com.safaricom.et.processors.EncryptionService;
+package com.safaricom.et.processors.encryption;
 
 
 import javax.crypto.spec.SecretKeySpec;

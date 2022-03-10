@@ -2,13 +2,12 @@ package com.safaricom.et.processors.EncryptionService;
 
 
 
-import com.safaricom.et.processors.EncryptionService.Utils.Encryption;
-import com.safaricom.et.processors.EncryptionService.Utils.Hashing;
+import com.safaricom.et.processors.encryption.service.AesEncryption;
+import com.safaricom.et.processors.encryption.service.EncryptionAlgorithm;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
-import org.apache.nifi.logging.ComponentLog;
 import org.apache.nifi.processor.*;
 
 import java.io.IOException;
@@ -46,6 +45,7 @@ import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.serialization.RecordReaderFactory;
 
 import static java.lang.Integer.parseInt;
+import static com.safaricom.et.processors.encryption.utils.Utils.KeyValidator;
 
 
 @Tags({"encryption", "decryption", "password", "JCE", "OpenPGP", "PGP", "GPG", "KDF", "Argon2", "Bcrypt", "Scrypt", "PBKDF2", "salt", "iv"})
@@ -57,7 +57,9 @@ import static java.lang.Integer.parseInt;
 
 public class EncryptRecord extends AbstractProcessor {
 
-    public  static  final Encryption encryption = new Encryption();
+   // public  static  final Encryption encryption = new Encryption();
+
+    public EncryptionAlgorithm encryption;
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
 
@@ -217,7 +219,6 @@ public class EncryptRecord extends AbstractProcessor {
         return this.descriptors;
     }
 
-
     @Override
     protected PropertyDescriptor getSupportedDynamicPropertyDescriptor(final String propertyDescriptorName) {
         return new PropertyDescriptor.Builder()
@@ -266,6 +267,7 @@ public class EncryptRecord extends AbstractProcessor {
 
     @OnScheduled
     public void createRecordPaths(final ProcessContext context) {
+        encryption = new AesEncryption(getLogger());
         recordPathCache = new RecordPathCache(context.getProperties().size() * 2);
 
         final List<String> recordPaths = new ArrayList<>(context.getProperties().size() - 2);
