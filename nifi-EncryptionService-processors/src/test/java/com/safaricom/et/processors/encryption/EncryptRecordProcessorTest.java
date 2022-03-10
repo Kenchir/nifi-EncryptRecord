@@ -14,9 +14,9 @@
  * See the License for the specific language governing permissions and
  * limitations under the License.
  */
-package com.safaricom.et.processors.EncryptionService;
+package com.safaricom.et.processors.encryption;
 
-import com.safaricom.et.processors.EncryptionService.Utils.Encryption;
+import com.safaricom.et.processors.encryption.service.AesEncryption;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordParser;
 import org.apache.nifi.serialization.record.MockRecordWriter;
@@ -38,7 +38,7 @@ public class EncryptRecordProcessorTest {
     private MockRecordParser readerService;
     private MockRecordWriter writerService;
     private  EnecryptionTest enecryptionTest =new EnecryptionTest();
-    private Encryption  encryption = new Encryption();
+    private AesEncryption encryption;
     //Apparently pretty printing is not portable as these tests fail on windows
 //    @BeforeClass
 //    public static void setUpSuite() {
@@ -59,6 +59,8 @@ public class EncryptRecordProcessorTest {
         testRunner.setProperty(EncryptRecord.RECORD_WRITER, "writer");
         readerService.addSchemaField("name", RecordFieldType.STRING);
         readerService.addSchemaField("msisdn", RecordFieldType.STRING);
+
+        encryption = new AesEncryption(testRunner.getLogger());
 
     }
 

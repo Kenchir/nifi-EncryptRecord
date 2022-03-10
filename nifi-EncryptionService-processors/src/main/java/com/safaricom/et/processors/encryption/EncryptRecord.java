@@ -1,8 +1,9 @@
-package com.safaricom.et.processors.EncryptionService;
+package com.safaricom.et.processors.encryption;
 
 
 
-import com.safaricom.et.processors.EncryptionService.Utils.Encryption;
+import com.safaricom.et.processors.encryption.service.AesEncryption;
+import com.safaricom.et.processors.encryption.service.EncryptionAlgorithm;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.ValidationContext;
@@ -44,6 +45,7 @@ import org.apache.nifi.annotation.documentation.SeeAlso;
 import org.apache.nifi.serialization.RecordReaderFactory;
 
 import static java.lang.Integer.parseInt;
+import static com.safaricom.et.processors.encryption.utils.Utils.KeyValidator;
 
 
 @Tags({"encryption", "decryption", "password", "JCE", "OpenPGP", "PGP", "GPG", "KDF", "Argon2", "Bcrypt", "Scrypt", "PBKDF2", "salt", "iv"})
@@ -55,7 +57,7 @@ import static java.lang.Integer.parseInt;
 
 public class EncryptRecord extends AbstractProcessor {
     Logger logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
-    public  static  final Encryption encryption = new Encryption();
+    public EncryptionAlgorithm encryption;
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
 
@@ -131,7 +133,7 @@ public class EncryptRecord extends AbstractProcessor {
     public static  final PropertyDescriptor ENCRYPTION_ALGORITHM_TYPE = new PropertyDescriptor
             .Builder()
             .name("encryption-algorithm-type")
-            .displayName("Encryption Algorithm")
+            .displayName("AesEncryption Algorithm")
             .description("Specifies the type of algorithm used for encryption")
             .allowableValues(AES_CBC_VALUES,AES_ECB_VALUES)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
@@ -226,11 +228,10 @@ public class EncryptRecord extends AbstractProcessor {
     @Override
     protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
         final boolean containsDynamic = validationContext.getProperties().keySet().stream().anyMatch(PropertyDescriptor::isDynamic);
-
         if (containsDynamic) {
             String key =validationContext.getProperty(SECRET_KEY).getValue();
             if(key.length() >= 2){
-                final  boolean isKeyValid=encryption.KEY_VALIDATOR(validationContext.getProperty(SECRET_KEY).getValue()
+                final  boolean isKeyValid=KeyValidator(validationContext.getProperty(SECRET_KEY).getValue()
                         ,parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
 
                 if(isKeyValid){
@@ -254,6 +255,7 @@ public class EncryptRecord extends AbstractProcessor {
 
     @OnScheduled
     public void createRecordPaths(final ProcessContext context) {
+        encryption = new AesEncryption(getLogger());
         recordPathCache = new RecordPathCache(context.getProperties().size() * 2);
 
         final List<String> recordPaths = new ArrayList<>(context.getProperties().size() - 2);
