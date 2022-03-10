@@ -4,10 +4,14 @@ package com.safaricom.et.processors.encryption;
 
 import com.safaricom.et.processors.encryption.service.AesEncryption;
 import com.safaricom.et.processors.encryption.service.EncryptionAlgorithm;
+
+import com.safaricom.et.processors.encryption.service.Hashing;
+import com.safaricom.et.processors.encryption.service.HashingAlgorithm;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.ValidationContext;
 import org.apache.nifi.components.ValidationResult;
+
 import org.apache.nifi.processor.*;
 
 import java.io.IOException;
@@ -62,7 +66,7 @@ public class EncryptRecord extends AbstractProcessor {
     public EncryptionAlgorithm encryption;
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
-
+    public HashingAlgorithm hashing;
 
     static final AllowableValue LITERAL_VALUES = new AllowableValue("literal-value", "Literal Value",
             "The value entered for a Property (after Expression Language has been evaluated) is the desired value to update the Record Fields with. Expression Language "
@@ -125,7 +129,7 @@ public class EncryptRecord extends AbstractProcessor {
     public static  final PropertyDescriptor ENCRYPTION_ALGORITHM_TYPE = new PropertyDescriptor
             .Builder()
             .name("encryption-algorithm-type")
-            .displayName("Algorithm")
+            .displayName("AES Algorithm")
             .description("Specifies the type of algorithm used for encryption")
             .allowableValues(AES_CBC_VALUES,AES_ECB_VALUES)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
@@ -252,8 +256,8 @@ public class EncryptRecord extends AbstractProcessor {
                         .explanation("Key  must be 16,24 or 32 bytes for 128, 192 or 256 key size  respectively")
                         .build());
             }
-            return Collections.emptyList();
 
+            return Collections.emptyList();
 
         }
 
@@ -296,6 +300,8 @@ public class EncryptRecord extends AbstractProcessor {
 
         final FlowFile original = flowFile;
         final Map<String, String> originalAttributes = flowFile.getAttributes();
+
+
         try {
             flowFile = session.write(flowFile, new StreamCallback() {
                 @Override
@@ -402,7 +408,6 @@ public class EncryptRecord extends AbstractProcessor {
                                    ProcessContext context ) {
         final RecordPathResult replacementResult = replacementRecordPath.evaluate(record);
         final List<FieldValue> selectedFields = replacementResult.getSelectedFields().collect(Collectors.toList());
-//        getLogger().info(selectedFields.toString());
         final List<FieldValue> destinationFieldValues = destinationFields.collect(Collectors.toList());
         return updateRecord(destinationFieldValues, selectedFields, record, context);
     }
@@ -472,19 +477,22 @@ public class EncryptRecord extends AbstractProcessor {
     }
 
     private  String getReplacementValue(String input,ProcessContext context){
-         final String secretKey = context.getProperty(SECRET_KEY).getValue();
-         final String aes_algorithm = context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
 
-        if (context.getProperty(MODE).getValue().equals("Encrypt")){
+        final  String mode = context.getProperty(MODE).getValue();
+        final String secretKey = context.getProperty(SECRET_KEY).getValue();
+        final String algorithm = mode.equals(HASH_MODE.getValue()) ? context.getProperty(HASHING_ALGORITHMS).getValue():
+                context.getProperty(ENCRYPTION_ALGORITHM_TYPE).getValue();
 
-            return  encryption.encrypt(aes_algorithm,input,secretKey);
-        }else if(context.getProperty(MODE).getValue().equals("Decrypt")){
 
-            return  encryption.decrypt(aes_algorithm,input,secretKey);
+        if(mode.equals("Encrypt")){
+
+            return  encryption.encrypt(algorithm,input,secretKey);
+        }else if(mode.equals("Decrypt")){
+
+            return  encryption.decrypt(algorithm,input,secretKey);
         }else {
-
-            Hashing hashing = new Hashing();
-            return  hashing.hashMessage( context.getProperty(HASHING_ALGORITHMS).getValue(),input);
+            hashing = new Hashing(getLogger());
+            return  hashing.hashMessage( algorithm,input);
         }
 
     }
