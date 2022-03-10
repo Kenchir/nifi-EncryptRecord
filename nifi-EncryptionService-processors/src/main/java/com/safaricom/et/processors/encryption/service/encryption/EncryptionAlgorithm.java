@@ -1,4 +1,4 @@
-package com.safaricom.et.processors.encryption.service;
+package com.safaricom.et.processors.encryption.service.encryption;
 
 public interface EncryptionAlgorithm {
 

@@ -2,8 +2,9 @@ package com.safaricom.et.processors.encryption;
 
 
 
-import com.safaricom.et.processors.encryption.service.AesEncryption;
-import com.safaricom.et.processors.encryption.service.EncryptionAlgorithm;
+import com.safaricom.et.processors.encryption.service.encryption.AesEncryption;
+import com.safaricom.et.processors.encryption.service.encryption.EncryptionAlgorithm;
+import com.safaricom.et.processors.encryption.service.hashing.*;
 import org.apache.nifi.annotation.documentation.Tags;
 import org.apache.nifi.components.AllowableValue;
 import org.apache.nifi.components.ValidationContext;
@@ -57,7 +58,8 @@ import static com.safaricom.et.processors.encryption.utils.Utils.KeyValidator;
 
 public class EncryptRecord extends AbstractProcessor {
     Logger logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
-    public EncryptionAlgorithm encryption;
+    private EncryptionAlgorithm encryption;
+    private HashingAlgorithm hashingAlgorithm;
     private volatile RecordPathCache recordPathCache;
     private volatile List<String> recordPaths;
 
@@ -75,8 +77,9 @@ public class EncryptRecord extends AbstractProcessor {
     static final AllowableValue KEY_SIZE_128_VALUES =new AllowableValue("128","AES_128");
     static final AllowableValue KEY_SIZE_192_VALUES =new AllowableValue("192","AES_192");
     static final AllowableValue KEY_SIZE_256_VALUES =new AllowableValue("256","AES_256");
-    static  final  AllowableValue   ENCRYPT_MODE =  new AllowableValue("Encrypt","Encrypt");
-    static  final  AllowableValue   DECRYPT_MODE =  new AllowableValue("Decrypt","Decrypt");
+    static final AllowableValue   ENCRYPT_MODE =  new AllowableValue("Encrypt","Encrypt");
+    static final AllowableValue   DECRYPT_MODE =  new AllowableValue("Decrypt","Decrypt");
+    static final AllowableValue HASHING = new AllowableValue("Hash", "Hash record") ;
 //    public static final String DECRYPT_MODE = "";
 
 
@@ -100,7 +103,7 @@ public class EncryptRecord extends AbstractProcessor {
             .name("Mode")
             .displayName("Mode")
             .description("Specifies whether the content should be encrypted or decrypted")
-            .allowableValues(ENCRYPT_MODE, DECRYPT_MODE)
+            .allowableValues(ENCRYPT_MODE, DECRYPT_MODE, HASHING)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
             .required(true)
             .build();
@@ -133,11 +136,24 @@ public class EncryptRecord extends AbstractProcessor {
     public static  final PropertyDescriptor ENCRYPTION_ALGORITHM_TYPE = new PropertyDescriptor
             .Builder()
             .name("encryption-algorithm-type")
-            .displayName("AesEncryption Algorithm")
+            .displayName("Encryption Algorithm")
             .description("Specifies the type of algorithm used for encryption")
             .allowableValues(AES_CBC_VALUES,AES_ECB_VALUES)
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .dependsOn(MODE, ENCRYPT_MODE, DECRYPT_MODE)
+            .required(true)
+            .build();
+
+    public static  final PropertyDescriptor HASHING_ALGORITHM_TYPE = new PropertyDescriptor
+            .Builder()
+            .name("hashing-algorithm-type")
+            .displayName("Hashing Algorithm")
+            .description("Specifies the type of algorithm used for hashing")
+            .allowableValues(HashingEnum.values())
+            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
+            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
+            .dependsOn(MODE, "Hash")
             .required(true)
             .build();
 
@@ -150,6 +166,7 @@ public class EncryptRecord extends AbstractProcessor {
             .expressionLanguageSupported(ExpressionLanguageScope.NONE)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
 //            .dependsOn(ENCRYPTION_ALGORITHM_TYPE, "true")
+            .dependsOn(MODE, ENCRYPT_MODE, DECRYPT_MODE)
             .required(true)
             .build();
 
@@ -161,6 +178,7 @@ public class EncryptRecord extends AbstractProcessor {
             .required(true)
             .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
 //            .dependsOn(KEY_SIZE, "true")
+            .dependsOn(MODE, ENCRYPT_MODE, DECRYPT_MODE)
             .expressionLanguageSupported(ExpressionLanguageScope.FLOWFILE_ATTRIBUTES)
             .sensitive(true)
             .build();
@@ -192,6 +210,7 @@ public class EncryptRecord extends AbstractProcessor {
 //        descriptors.add(REPLACEMENT_VALUE_STRATEGY);
         descriptors.add(MODE);
         descriptors.add(ENCRYPTION_ALGORITHM_TYPE);
+        descriptors.add(HASHING_ALGORITHM_TYPE);
         descriptors.add(KEY_SIZE);
         descriptors.add(SECRET_KEY);
 
@@ -229,20 +248,24 @@ public class EncryptRecord extends AbstractProcessor {
     protected Collection<ValidationResult> customValidate(final ValidationContext validationContext) {
         final boolean containsDynamic = validationContext.getProperties().keySet().stream().anyMatch(PropertyDescriptor::isDynamic);
         if (containsDynamic) {
-            String key =validationContext.getProperty(SECRET_KEY).getValue();
-            if(key.length() >= 2){
-                final  boolean isKeyValid=KeyValidator(validationContext.getProperty(SECRET_KEY).getValue()
-                        ,parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
+            if (!validationContext.getProperty(MODE).getValue().equals("Hash")) {
+                String key = validationContext.getProperty(SECRET_KEY).getValue();
+                if (key.length() >= 2) {
+                    final boolean isKeyValid = KeyValidator(validationContext.getProperty(SECRET_KEY).getValue()
+                            , parseInt(validationContext.getProperty(KEY_SIZE).getValue()));
 
-                if(isKeyValid){
-                    return Collections.emptyList();
+                    if (isKeyValid) {
+                        return Collections.emptyList();
+                    }
                 }
+                return Collections.singleton(new ValidationResult.Builder()
+                        .subject(" Invalid AES key: ")
+                        .valid(false)
+                        .explanation("Key  must be 16,24 or 32 bytes for 128, 192 or 256 key size  respectively")
+                        .build());
+            } else {
+                return  Collections.emptyList();
             }
-            return Collections.singleton(new ValidationResult.Builder()
-                    .subject(" Invalid AES key: ")
-                    .valid(false)
-                    .explanation("Key  must be 16,24 or 32 bytes for 128, 192 or 256 key size  respectively")
-                    .build());
         }
 
         return Collections.singleton(new ValidationResult.Builder()
@@ -255,6 +278,22 @@ public class EncryptRecord extends AbstractProcessor {
 
     @OnScheduled
     public void createRecordPaths(final ProcessContext context) {
+        if (context.getProperty(MODE).getValue().equals("Hash")) {
+            HashingEnum hashingEnum = HashingEnum.valueOf(context.getProperty(HASHING_ALGORITHM_TYPE).getValue());
+            switch (hashingEnum) {
+                case MD5:
+                    hashingAlgorithm = new Md5Hashing();
+                    break;
+                case SHA1:
+                    hashingAlgorithm = new Sha1Hashing();
+                    break;
+                case SHA256:
+                    hashingAlgorithm = new Sha256Hashing();
+                    break;
+                case SHA512:
+                    hashingAlgorithm = new Sha512Hashing();
+            }
+        }
         encryption = new AesEncryption(getLogger());
         recordPathCache = new RecordPathCache(context.getProperties().size() * 2);
 
@@ -466,9 +505,11 @@ public class EncryptRecord extends AbstractProcessor {
         if (context.getProperty(MODE).getValue().equals("Encrypt")){
 
             return  encryption.encrypt(aes_algorithm,input,secretKey);
-        }else{
+        }else if (context.getProperty(MODE).getValue().equals("Decrypt")) {
 
             return  encryption.decrypt(aes_algorithm,input,secretKey);
+        } else {
+            return hashingAlgorithm.hash(input);
         }
 
     }

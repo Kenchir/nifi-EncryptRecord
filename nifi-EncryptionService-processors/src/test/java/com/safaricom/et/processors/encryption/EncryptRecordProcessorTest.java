@@ -16,7 +16,7 @@
  */
 package com.safaricom.et.processors.encryption;
 
-import com.safaricom.et.processors.encryption.service.AesEncryption;
+import com.safaricom.et.processors.encryption.service.encryption.AesEncryption;
 import org.apache.nifi.reporting.InitializationException;
 import org.apache.nifi.serialization.record.MockRecordParser;
 import org.apache.nifi.serialization.record.MockRecordWriter;
