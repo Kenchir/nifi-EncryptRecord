@@ -16,7 +16,6 @@ import java.io.InputStream;
 import java.io.OutputStream;
 import java.util.*;
 import java.util.concurrent.atomic.AtomicInteger;
-import java.util.logging.Logger;
 import java.util.stream.Collectors;
 import java.util.stream.Stream;
 
@@ -56,8 +55,7 @@ import static com.safaricom.et.processors.encryption.utils.Utils.KeyValidator;
 @ReadsAttributes({@ReadsAttribute(attribute = "", description = "")})
 @WritesAttributes({@WritesAttribute(attribute = "", description = "")})
 
-public class EncryptRecord extends AbstractProcessor {
-    Logger logger = Logger.getLogger(Logger.GLOBAL_LOGGER_NAME);
+public class MaskRecord extends AbstractProcessor {
     private EncryptionAlgorithm encryption;
     private HashingAlgorithm hashingAlgorithm;
     private volatile RecordPathCache recordPathCache;
@@ -120,18 +118,6 @@ public class EncryptRecord extends AbstractProcessor {
             .defaultValue("true")
             .required(true)
             .build();
-
-//public static final PropertyDescriptor REPLACEMENT_VALUE_STRATEGY  = new PropertyDescriptor
-//            .Builder()
-//            .name("replacement-value-strategy")
-//            .displayName("Replacement Value Strategy")
-//            .description("Specifies how to interpret the configured replacement values")
-//            .allowableValues(RECORD_PATH_VALUES,LITERAL_VALUES)
-//            .expressionLanguageSupported(ExpressionLanguageScope.NONE)
-//            .defaultValue(RECORD_PATH_VALUES.getValue())
-//            .required(true)
-//            .addValidator(StandardValidators.NON_EMPTY_VALIDATOR)
-//            .build();
 
     public static  final PropertyDescriptor ENCRYPTION_ALGORITHM_TYPE = new PropertyDescriptor
             .Builder()
@@ -293,18 +279,18 @@ public class EncryptRecord extends AbstractProcessor {
                 case SHA512:
                     hashingAlgorithm = new Sha512Hashing();
             }
+        } else {
+            encryption = new AesEncryption(getLogger());
         }
-        encryption = new AesEncryption(getLogger());
-        recordPathCache = new RecordPathCache(context.getProperties().size() * 2);
+            recordPathCache = new RecordPathCache(context.getProperties().size() * 2);
 
-        final List<String> recordPaths = new ArrayList<>(context.getProperties().size() - 2);
-        for (final PropertyDescriptor property : context.getProperties().keySet()) {
-            if (property.isDynamic()) {
-                logger.info("Record property: " +  property.getName() + " value: " + property.getDefaultValue());
-                recordPaths.add(property.getName());
+            final List<String> recordPaths = new ArrayList<>(context.getProperties().size() - 2);
+            for (final PropertyDescriptor property : context.getProperties().keySet()) {
+                if (property.isDynamic()) {
+                    recordPaths.add(property.getName());
+                }
             }
-        }
-        this.recordPaths = recordPaths;
+            this.recordPaths = recordPaths;
     }
 
     @Override
@@ -334,7 +320,6 @@ public class EncryptRecord extends AbstractProcessor {
                         // updates the Record's schema, we can provide an updated schema to the Record Writer. If there are no records,
                         // then we can simply create the Writer with the Reader's schema and begin & end the Record Set.
                         Record firstRecord = reader.nextRecord();
-                        getLogger().info(firstRecord.getValue("msisdn").toString());
                         if (firstRecord == null) {
                             final RecordSchema writeSchema = writerFactory.getSchema(originalAttributes, reader.getSchema());
                             try (final RecordSetWriter writer = writerFactory.createWriter(getLogger(), writeSchema, out, originalAttributes)) {
@@ -402,18 +387,15 @@ public class EncryptRecord extends AbstractProcessor {
 
         final int count = recordCount.get();
         session.adjustCounter("Records Processed", count, false);
-        getLogger().info("Successfully converted {} records for {}", new Object[] {count, flowFile});
     }
 
     protected  Record processRecords(Record record, FlowFile flowFile, ProcessContext context, long count){
 
         for (final String recordPathText : recordPaths) {
-//            getLogger().info("recordPathText: "+recordPathText);
             final RecordPath recordPath = recordPathCache.getCompiled(recordPathText);
             final RecordPathResult result = recordPath.evaluate(record);
 
             final String replacementValue = context.getProperty(recordPathText).evaluateAttributeExpressions(flowFile).getValue();
-//            getLogger().info("replacementValue : "+replacementValue);
             final RecordPath replacementRecordPath = recordPathCache.getCompiled(replacementValue);
 
             // If we have an Absolute RecordPath, we need to evaluate the RecordPath only once against the Record.
@@ -429,7 +411,6 @@ public class EncryptRecord extends AbstractProcessor {
                                    ProcessContext context ) {
         final RecordPathResult replacementResult = replacementRecordPath.evaluate(record);
         final List<FieldValue> selectedFields = replacementResult.getSelectedFields().collect(Collectors.toList());
-//        getLogger().info(selectedFields.toString());
         final List<FieldValue> destinationFieldValues = destinationFields.collect(Collectors.toList());
         return updateRecord(destinationFieldValues, selectedFields, record, context);
     }
@@ -439,7 +420,6 @@ public class EncryptRecord extends AbstractProcessor {
 
         if (destinationFields.size() == 1 && !destinationFields.get(0).getParentRecord().isPresent()) {
             final Object replacement = getReplacementObject(selectedFields,context);
-            logger.info(replacement.toString());
             if (replacement == null) {
                 return record;
             }

@@ -19,17 +19,23 @@
     <parent>
         <groupId>org.apache.nifi</groupId>
         <artifactId>nifi-nar-bundles</artifactId>
-        <version>1.15.0</version>
+        <version>1.16.1</version>
     </parent>
 
     <groupId>com.safaricom.et</groupId>
     <artifactId>Encryption</artifactId>
-    <version>1.15.0</version>
+    <version>1.16.1</version>
     <packaging>pom</packaging>
+    <properties>
+        <version>1.16.1</version>
+        <nifi.api.version>1.16.1</nifi.api.version>
+        <guava.version>31.1-jre</guava.version>
+        <commons.codec.version>1.15</commons.codec.version>
+    </properties>
 
     <modules>
-        <module>nifi-encrypt-record-nar</module>
-        <module>nifi-encrypt-record-processor</module>
+        <module>nifi-mask-record-nar</module>
+        <module>nifi-mask-record-processor</module>
     </modules>
 
 </project>
