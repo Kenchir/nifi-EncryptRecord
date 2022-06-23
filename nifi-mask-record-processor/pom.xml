@@ -23,10 +23,10 @@
     <parent>
         <groupId>com.safaricom.et</groupId>
         <artifactId>Encryption</artifactId>
-        <version>1.15.0</version>
+        <version>1.16.1</version>
     </parent>
 
-    <artifactId>nifi-encrypt-record-processor</artifactId>
+    <artifactId>nifi-mask-record-processor</artifactId>
     <packaging>jar</packaging>
 
     <dependencies>
@@ -60,39 +60,33 @@
             <artifactId>nifi-record-serialization-service-api</artifactId>
             <version>${version}</version>
         </dependency>
-
-        <dependency>
-            <groupId>org.apache.nifi</groupId>
-            <artifactId>nifi-record-serialization-services</artifactId>
-            <version>${version}</version>
-        </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record</artifactId>
-            <version>${version}</version>
+            <version>${nifi.api.version}</version>
         </dependency>
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-record-path</artifactId>
-            <version>${version}</version>
+            <version>${nifi.api.version}</version>
         </dependency>
         <!-- https://mvnrepository.com/artifact/org.apache.nifi/nifi-mock-record-utils -->
         <dependency>
             <groupId>org.apache.nifi</groupId>
             <artifactId>nifi-mock-record-utils</artifactId>
-            <version>${version}</version>
+            <version>${nifi.api.version}</version>
             <scope>test</scope>
         </dependency>
 
         <dependency>
             <groupId>com.google.guava</groupId>
             <artifactId>guava</artifactId>
-            <version>31.0.1-jre</version>
+            <version>${guava.version}</version>
         </dependency>
         <dependency>
             <groupId>commons-codec</groupId>
             <artifactId>commons-codec</artifactId>
-            <version>1.15</version>
+            <version>${commons.codec.version}</version>
         </dependency>
 
     </dependencies>
